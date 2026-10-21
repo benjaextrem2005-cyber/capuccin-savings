@@ -5,6 +5,7 @@ struct DailyEntryView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var scheme
     @Query(sort: \DailyRecord.date, order: .reverse) private var records: [DailyRecord]
+    @Query(sort: \VehicleExpense.date, order: .reverse) private var expenses: [VehicleExpense]
     @State private var date = Date()
     @State private var incomeText = ""
     @State private var fuelText = ""
@@ -16,11 +17,16 @@ struct DailyEntryView: View {
 
     private var income: Int? { CLPAmount.parse(incomeText) }
     private var fuel: Int? { CLPAmount.parse(fuelText) }
-    private var net: Int { (income ?? 0) - (fuel ?? 0) }
+    private var selectedOtherExpenses: Int { FinanceMath.day(date, records: [], expenses: expenses).otherExpenses }
+    private var net: Int { (income ?? 0) - (fuel ?? 0) - selectedOtherExpenses }
     private var isValid: Bool { income != nil && fuel != nil }
     private var existing: DailyRecord? { records.first { Calendar.current.isDate($0.date, inSameDayAs: date) } }
     private var monthRecords: [DailyRecord] { records.filter { Calendar.current.isDate($0.date, equalTo: Date(), toGranularity: .month) } }
-    private var monthNet: Int { monthRecords.reduce(0) { $0 + $1.netIncome } }
+    private var monthOtherExpenses: Int {
+        expenses.filter { Calendar.current.isDate($0.date, equalTo: Date(), toGranularity: .month) }
+            .reduce(0) { $0 + $1.amount }
+    }
+    private var monthNet: Int { monthRecords.reduce(0) { $0 + $1.netIncome } - monthOtherExpenses }
 
     var body: some View {
         ZStack {
@@ -29,9 +35,10 @@ struct DailyEntryView: View {
                 VStack(alignment: .leading, spacing: 24) {
                     header
                     monthSummary
+                    DailyTargetCard()
                     entryCard
                     history
-                    Text("El neto de esta bitácora descuenta solo bencina. Mantenimiento y otros gastos no están incluidos.")
+                    Text("El saldo descuenta bencina y los otros gastos que registres. Apartar dinero para tu meta no se descuenta otra vez como gasto.")
                         .font(.caption).foregroundStyle(Cappuccino.muted(scheme))
                 }
                 .padding(.horizontal, 20).padding(.top, 12).padding(.bottom, 32)
@@ -59,7 +66,7 @@ struct DailyEntryView: View {
             Button("Cancelar", role: .cancel) { pendingDeletion = nil }
             Button("Eliminar", role: .destructive) { deleteSelectedRecord() }
         } message: {
-            Text(pendingDeletion.map { "Se eliminarán los ingresos y la bencina del \(Cappuccino.date($0.date))." } ?? "")
+            Text(pendingDeletion.map { "Se eliminarán los ingresos y la bencina del \(Cappuccino.date($0.date)). Los otros gastos de esa fecha se conservan en Gastos." } ?? "")
         }
     }
 
@@ -88,6 +95,7 @@ struct DailyEntryView: View {
                 Divider().overlay(Cappuccino.gold.opacity(0.2))
                 AmountRow(title: "Ingresos registrados", amount: monthRecords.reduce(0) { $0 + $1.grossIncome })
                 AmountRow(title: "Bencina registrada", amount: monthRecords.reduce(0) { $0 + $1.fuelExpense }, color: Cappuccino.negative(scheme))
+                AmountRow(title: "Otros gastos registrados", amount: monthOtherExpenses, color: Cappuccino.negative(scheme))
             }
         }
     }
@@ -100,12 +108,19 @@ struct DailyEntryView: View {
                     .font(.subheadline.weight(.medium))
                 MoneyField(title: "Ingreso bruto · Uber", text: $incomeText, symbol: "arrow.down.left.circle")
                 MoneyField(title: "Gasto de bencina", text: $fuelText, symbol: "fuelpump")
+                AmountRow(title: "Otros gastos de esta fecha", amount: selectedOtherExpenses, color: Cappuccino.negative(scheme))
+                NavigationLink {
+                    ExpensesView(initialDate: date)
+                } label: {
+                    Label("Agregar o revisar otros gastos", systemImage: "wrench.and.screwdriver")
+                        .font(.subheadline.weight(.semibold)).frame(minHeight: 44)
+                }
                 VStack(alignment: .leading, spacing: 7) {
                     Text("Ganancia neta diaria").font(.subheadline)
                     Text(Cappuccino.money(net)).font(.largeTitle.weight(.bold)).fontDesign(.rounded)
                         .monospacedDigit().minimumScaleFactor(0.65).lineLimit(1)
                         .foregroundStyle(net >= 0 ? Cappuccino.positive(scheme) : Cappuccino.negative(scheme))
-                    Text("Ingreso bruto − bencina").font(.caption).foregroundStyle(Cappuccino.muted(scheme))
+                    Text("Ingreso bruto − bencina − otros gastos").font(.caption).foregroundStyle(Cappuccino.muted(scheme))
                 }
                 .padding(18).frame(maxWidth: .infinity, alignment: .leading)
                 .background((net >= 0 ? Cappuccino.positive(scheme) : Cappuccino.negative(scheme)).opacity(0.08), in: RoundedRectangle(cornerRadius: 20))
@@ -159,13 +174,14 @@ struct DailyEntryView: View {
     }
 
     private func recordCard(_ record: DailyRecord) -> some View {
-        GlassCard {
+        let totals = FinanceMath.day(record.date, records: [record], expenses: expenses)
+        return GlassCard {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(Cappuccino.date(record.date)).font(.headline)
-                        Text(Cappuccino.money(record.netIncome)).font(.title2.weight(.bold)).fontDesign(.rounded)
-                            .foregroundStyle(record.netIncome >= 0 ? Cappuccino.positive(scheme) : Cappuccino.negative(scheme))
+                        Text(Cappuccino.money(totals.net)).font(.title2.weight(.bold)).fontDesign(.rounded)
+                            .foregroundStyle(totals.net >= 0 ? Cappuccino.positive(scheme) : Cappuccino.negative(scheme))
                     }
                     Spacer(minLength: 8)
                     Button { date = record.date; loadSelectedDay() } label: {
@@ -179,6 +195,9 @@ struct DailyEntryView: View {
                 }
                 AmountRow(title: "Ingreso bruto", amount: record.grossIncome)
                 AmountRow(title: "Bencina", amount: record.fuelExpense, color: Cappuccino.negative(scheme))
+                if totals.otherExpenses > 0 {
+                    AmountRow(title: "Otros gastos", amount: totals.otherExpenses, color: Cappuccino.negative(scheme))
+                }
             }
         }
     }

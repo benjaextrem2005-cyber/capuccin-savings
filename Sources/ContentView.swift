@@ -9,6 +9,10 @@ struct ContentView: View {
                 .tabItem { Label("Registro", systemImage: "chart.bar.doc.horizontal") }
             NavigationStack { GoalCalculatorView() }
                 .tabItem { Label("Mi meta", systemImage: "target") }
+            NavigationStack { ExpensesView() }
+                .tabItem { Label("Gastos", systemImage: "wrench.and.screwdriver") }
+            NavigationStack { WeeklySummaryView() }
+                .tabItem { Label("Semana", systemImage: "chart.bar.xaxis") }
         }
         .tint(scheme == .dark ? Cappuccino.gold : Cappuccino.espresso)
         .toolbarBackground(.ultraThinMaterial, for: .tabBar)

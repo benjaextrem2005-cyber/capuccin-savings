@@ -7,7 +7,7 @@ struct SavingsApp: App {
     private let store: Result<ModelContainer, Error>
     init() {
         store = Result {
-            let schema = Schema([DailyRecord.self, SavingsGoal.self])
+            let schema = Schema([DailyRecord.self, SavingsGoal.self, SavingsContribution.self, VehicleExpense.self])
             let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false, cloudKitDatabase: .none)
             let container = try ModelContainer(for: schema, configurations: [configuration])
             container.mainContext.autosaveEnabled = false
